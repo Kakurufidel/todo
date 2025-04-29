@@ -29,20 +29,18 @@ ALLOWED_HOSTS = []
 
 
 # Application definition
-
 INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
     'rest_framework',
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "Task.apps.TaskConfig",
-    "TODO.api",
     'django_extensions',
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
+    'Task.apps.TaskConfig',
+    'TODO.api',
 ]
-
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -66,8 +64,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                'rest_framework',
-                'tasks',
+
             ],
         },
     },
@@ -75,11 +72,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "TODO.wsgi.application"
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ]
 }
-
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases

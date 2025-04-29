@@ -14,33 +14,60 @@ class BaseModel(models.Model):
     class Meta:
         abstract = True
 
-class Category(BaseModel):
+class SoftDeleteManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted=False)
+
+class SoftDeleteModel(models.Model):
+    """
+    Modèle abstrait pour la suppression douce
+    """
+    deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    
+    objects = SoftDeleteManager()
+    all_objects = models.Manager()
+    
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = timezone.now()
+        self.save()
+    
+    def restore(self):
+        self.deleted = False
+        self.deleted_at = None
+        self.save()
+    
+    class Meta:
+        abstract = True
+
+class Category(BaseModel, SoftDeleteModel):
     """
     Catégories pour organiser les tâches
     """
     name = models.CharField(max_length=50)
     description = models.TextField(blank=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
         return self.name
 
     @property
     def task_count(self):
-        return self.task_set.count()
+        return self.task_set.filter(deleted=False).count()
 
-class Tag(BaseModel):
+class Tag(BaseModel, SoftDeleteModel):
     """
     Étiquettes pour classer les tâches
     """
     name = models.CharField(max_length=50)
     color = models.CharField(max_length=20, blank=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
         return f"{self.name} ({self.color})" if self.color else self.name
 
-class Task(BaseModel):
+class Task(BaseModel, SoftDeleteModel):
     """
     Modèle principal des tâches avec rappel automatique intégré
     """
@@ -62,22 +89,15 @@ class Task(BaseModel):
     due_date = models.DateTimeField(null=True, blank=True)
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='todo')
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     
     # Relations
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
     tags = models.ManyToManyField(Tag, blank=True)
     
     # Gestion des rappels automatiques
-    auto_reminder = models.BooleanField(
-        default=True,
-        verbose_name="Rappel automatique",
-    )
-    
-    reminder_offset = models.DurationField(
-        default=timedelta(hours=1),
-        verbose_name="Délai avant rappel"
-    )
+    auto_reminder = models.BooleanField(default=True, verbose_name="Rappel automatique")
+    reminder_offset = models.DurationField(default=timedelta(hours=1), verbose_name="Délai avant rappel")
 
     def clean(self):
         """Validation des données avant sauvegarde"""
@@ -105,7 +125,8 @@ class Task(BaseModel):
         return bool(
             self.due_date and 
             self.due_date < timezone.now() and 
-            self.status != 'done'
+            self.status != 'done' and
+            not self.deleted
         )
 
     @property
@@ -127,10 +148,11 @@ class Reminder(BaseModel):
     """
     task = models.OneToOneField(
         Task,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name='task_reminder'
     )
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     time = models.DateTimeField()
     notified = models.BooleanField(default=False)
 
@@ -141,13 +163,13 @@ class Reminder(BaseModel):
         return now <= self.time <= now + timedelta(hours=24)
 
     def __str__(self):
-        return f"Rappel pour {self.task.title} à {self.time}"
+        return f"Rappel pour {self.task.title if self.task else 'Tâche supprimée'} à {self.time}"
 
-class SubTask(BaseModel):
+class SubTask(BaseModel, SoftDeleteModel):
     """
     Sous-tâches pour décomposer les tâches principales
     """
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='subtasks')
+    task = models.ForeignKey(Task, on_delete=models.SET_NULL, null=True, related_name='subtasks')
     title = models.CharField(max_length=100)
     completed = models.BooleanField(default=False)
 
@@ -160,12 +182,12 @@ class SubTask(BaseModel):
         status = "✓" if self.completed else "✗"
         return f"{status} {self.title}"
 
-class Comment(BaseModel):
+class Comment(BaseModel, SoftDeleteModel):
     """
     Commentaires sur les tâches
     """
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='comments')
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    task = models.ForeignKey(Task, on_delete=models.SET_NULL, null=True, related_name='comments')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     content = models.TextField()
 
     @property
@@ -174,14 +196,14 @@ class Comment(BaseModel):
         return (self.content[:50] + '...') if len(self.content) > 50 else self.content
 
     def __str__(self):
-        return f"Commentaire par {self.user.username}"
+        return f"Commentaire par {self.user.username if self.user else 'Utilisateur supprimé'}"
 
-class Attachment(BaseModel):
+class Attachment(BaseModel, SoftDeleteModel):
     """
     Fichiers joints aux tâches
     """
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='attachments')
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    task = models.ForeignKey(Task, on_delete=models.SET_NULL, null=True, related_name='attachments')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     file = models.FileField(upload_to='attachments/')
     name = models.CharField(max_length=100, blank=True)
 
@@ -199,12 +221,12 @@ class Attachment(BaseModel):
     def __str__(self):
         return self.name or f"Fichier #{self.id}"
 
-class TimeLog(BaseModel):
+class TimeLog(BaseModel, SoftDeleteModel):
     """
     Suivi du temps passé sur les tâches
     """
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='time_logs')
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    task = models.ForeignKey(Task, on_delete=models.SET_NULL, null=True, related_name='time_logs')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
 
